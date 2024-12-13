@@ -14,7 +14,8 @@ using Microsoft.IdentityModel.Tokens;
 
 namespace IdentityServerApi.BusinessLayer.Services;
 
-public class IdentityService(IOptions<JwtSettings> jwtSettingsOptions,
+public class IdentityService(
+    IOptions<JwtSettings> jwtSettingsOptions,
     UserManager<ApplicationUser> userManager,
     SignInManager<ApplicationUser> signInManager,
     IUserService userService,
@@ -28,10 +29,7 @@ public class IdentityService(IOptions<JwtSettings> jwtSettingsOptions,
 
         if (signInResult.RequiresTwoFactor)
         {
-            return new AuthResponse
-            {
-                IsTwoFaRequired = true
-            };
+            return new AuthResponse { IsTwoFaRequired = true };
             // var authenticatorCode = request.TwoFactorCode?.Replace(" ", string.Empty).Replace("-", string.Empty) ??
             //                         throw new InvalidOperationException("Invalid authenticator code");
             //
@@ -43,6 +41,54 @@ public class IdentityService(IOptions<JwtSettings> jwtSettingsOptions,
         }
 
         if (!signInResult.Succeeded)
+        {
+            return null;
+        }
+
+        var user = await userManager.FindByNameAsync(request.UserName);
+        await userManager.UpdateSecurityStampAsync(user);
+
+        var userRoles = await userManager.GetRolesAsync(user);
+
+        var claims = new List<Claim>()
+        {
+            new(ClaimTypes.NameIdentifier, user.Id.ToString()),
+            new(ClaimTypes.Name, request.UserName),
+            new(ClaimTypes.GivenName, user.FirstName),
+            new(ClaimTypes.Surname, user.LastName ?? string.Empty),
+            new(ClaimTypes.Email, user.Email ?? string.Empty),
+            new(ClaimTypes.SerialNumber, user.SecurityStamp ?? string.Empty)
+        }.Union(userRoles.Select(role => new Claim(ClaimTypes.Role, role))).ToList();
+
+        var loginResponse = CreateToken(claims);
+
+        loginResponse.IsTwoFaRequired = signInResult.RequiresTwoFactor;
+
+        user.RefreshToken = loginResponse.RefreshToken;
+        user.RefreshTokenExpirationDate = DateTime.UtcNow.AddMinutes(jwtSettings.RefreshTokenExpirationMinutes);
+
+        await userManager.UpdateAsync(user);
+
+        return loginResponse;
+    }
+
+    public async Task<AuthResponse> LoginAllAsync(LoginRequest request)
+    {
+        var signInResult = await signInManager.PasswordSignInAsync(request.UserName, request.Password, false, false);
+
+        if (signInResult.RequiresTwoFactor)
+        {
+            var authenticatorCode = request.TwoFactorCode?.Replace(" ", string.Empty).Replace("-", string.Empty) ??
+                                    throw new InvalidOperationException("Invalid authenticator code");
+
+            var twoFaSignInResult =
+                await signInManager.TwoFactorAuthenticatorSignInAsync(authenticatorCode, false, false);
+            if (!twoFaSignInResult.Succeeded)
+            {
+                return null;
+            }
+        }
+        else if (!signInResult.Succeeded)
         {
             return null;
         }
@@ -160,7 +206,8 @@ public class IdentityService(IOptions<JwtSettings> jwtSettingsOptions,
             var userId = user.GetId();
             var dbUser = await userManager.FindByIdAsync(userId.ToString());
 
-            if (dbUser?.RefreshToken == null || dbUser?.RefreshTokenExpirationDate < DateTime.UtcNow || dbUser?.RefreshToken != request.RefreshToken)
+            if (dbUser?.RefreshToken == null || dbUser?.RefreshTokenExpirationDate < DateTime.UtcNow ||
+                dbUser?.RefreshToken != request.RefreshToken)
             {
                 return null;
             }
@@ -196,8 +243,7 @@ public class IdentityService(IOptions<JwtSettings> jwtSettingsOptions,
 
         var response = new RegisterResponse
         {
-            Succeeded = result.Succeeded,
-            Errors = result.Errors.Select(e => e.Description)
+            Succeeded = result.Succeeded, Errors = result.Errors.Select(e => e.Description)
         };
 
         return response;
@@ -216,11 +262,7 @@ public class IdentityService(IOptions<JwtSettings> jwtSettingsOptions,
 
         var accessToken = new JwtSecurityTokenHandler().WriteToken(jwtSecurityToken);
 
-        var response = new AuthResponse
-        {
-            AccessToken = accessToken,
-            RefreshToken = GenerateRefreshToken()
-        };
+        var response = new AuthResponse { AccessToken = accessToken, RefreshToken = GenerateRefreshToken() };
 
         return response;
 
@@ -254,7 +296,8 @@ public class IdentityService(IOptions<JwtSettings> jwtSettingsOptions,
         try
         {
             var user = tokenHandler.ValidateToken(accessToken, tokenValidationParameters, out var securityToken);
-            if (securityToken is JwtSecurityToken jwtSecurityToken && jwtSecurityToken.Header.Alg == SecurityAlgorithms.HmacSha256)
+            if (securityToken is JwtSecurityToken jwtSecurityToken &&
+                jwtSecurityToken.Header.Alg == SecurityAlgorithms.HmacSha256)
             {
                 return user;
             }

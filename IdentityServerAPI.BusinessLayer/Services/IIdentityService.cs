@@ -8,6 +8,8 @@ public interface IIdentityService
 
     Task<AuthResponse> LoginAsync(LoginRequest request);
 
+    Task<AuthResponse> LoginAllAsync(LoginRequest request);
+
     Task<AuthResponse> LoginWith2FaAsync(TwoFaLoginRequest request);
 
     Task<AuthResponse> RefreshTokenAsync(RefreshTokenRequest request);

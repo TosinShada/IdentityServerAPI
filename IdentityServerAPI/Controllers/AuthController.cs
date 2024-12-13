@@ -22,6 +22,19 @@ public class AuthController(IIdentityService identityService) : ControllerBase
         return BadRequest();
     }
 
+    [HttpPost("login/all")]
+    [AllowAnonymous]
+    public async Task<IActionResult> LoginAll(LoginRequest request)
+    {
+        var response = await identityService.LoginAllAsync(request);
+        if (response != null)
+        {
+            return Ok(response);
+        }
+
+        return BadRequest();
+    }
+
     [HttpPost("login/2fa")]
     [AllowAnonymous]
     public async Task<IActionResult> LoginWith2Fa(TwoFaLoginRequest request)

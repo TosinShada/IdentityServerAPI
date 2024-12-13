@@ -144,7 +144,8 @@ void ConfigureServices(IServiceCollection services, IConfiguration configuration
 
     services.AddScoped<IIdentityService, IdentityService>();
     services.AddScoped<IUserService, UserService>();
-    services.AddScoped<IAuthenticatorService, AuthenticatorService>();
+    //services.AddScoped<IAuthenticatorService, AuthenticatorService>();
+    services.AddScoped<IAuthenticatorService, SoloAuthenticatorService>();
 
     services.AddHostedService<AuthenticationStartupTask>();
 
